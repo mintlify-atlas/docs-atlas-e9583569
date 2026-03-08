@@ -1,0 +1,264 @@
+---
+title: 'Browser Compatibility'
+description: 'Browser requirements and compatibility information for the AssemblyAI Real-Time Transcription Browser Example'
+---
+
+This guide outlines the browser requirements and compatibility considerations for running the real-time transcription application.
+
+## Minimum Browser Requirements
+
+The application requires modern browser APIs that may not be available in older browsers:
+
+<Warning>
+  This application requires AudioWorklet support, which is not available in older browsers or some mobile browsers.
+</Warning>
+
+### Required Browser APIs
+
+1. **Web Audio API** - For audio processing
+2. **AudioWorklet** - For real-time audio processing in a separate thread
+3. **WebSocket** - For real-time communication with AssemblyAI
+4. **getUserMedia API** - For microphone access
+5. **ES6+ JavaScript** - Modern JavaScript features
+
+## Supported Browsers
+
+### Fully Supported
+
+| Browser | Minimum Version | Notes |
+|---------|----------------|-------|
+| Chrome | 66+ | Best performance, full AudioWorklet support |
+| Edge | 79+ | Chromium-based, excellent support |
+| Firefox | 76+ | Good support, may have slight latency differences |
+| Opera | 53+ | Chromium-based, fully compatible |
+
+### Limited Support
+
+| Browser | Status | Issues |
+|---------|--------|--------|
+| Safari (macOS) | 14.1+ | Limited AudioWorklet support, may have stability issues |
+| Safari (iOS) | 14.5+ | Partial support, performance limitations |
+| Samsung Internet | 12+ | Generally works but less tested |
+
+### Not Supported
+
+- Internet Explorer (all versions)
+- Legacy Edge (pre-Chromium, versions below 79)
+- Chrome/Firefox versions older than specified above
+- Most in-app browsers (Facebook, Instagram, etc.)
+
+## Checking Browser Compatibility
+
+Add this code to check browser compatibility before starting:
+
+```javascript
+function checkBrowserCompatibility() {
+  const issues = [];
+
+  // Check AudioContext
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    issues.push('Web Audio API not supported');
+  }
+
+  // Check AudioWorklet
+  if (!AudioWorkletNode) {
+    issues.push('AudioWorklet not supported');
+  }
+
+  // Check WebSocket
+  if (!window.WebSocket) {
+    issues.push('WebSocket not supported');
+  }
+
+  // Check getUserMedia
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    issues.push('getUserMedia API not supported');
+  }
+
+  // Check if AudioContext supports AudioWorklet
+  if (window.AudioContext) {
+    const tempContext = new AudioContext();
+    if (!tempContext.audioWorklet) {
+      issues.push('AudioWorklet not available in AudioContext');
+    }
+    tempContext.close();
+  }
+
+  return {
+    compatible: issues.length === 0,
+    issues: issues
+  };
+}
+
+// Use it before initializing
+const compatibility = checkBrowserCompatibility();
+if (!compatibility.compatible) {
+  alert(`Your browser is not compatible:\n${compatibility.issues.join('\n')}`);
+  console.error('Browser compatibility issues:', compatibility.issues);
+}
+```
+
+## Browser-Specific Considerations
+
+### Chrome (Recommended)
+
+Chrome provides the best experience:
+
+- Full AudioWorklet support since version 66
+- Excellent WebSocket performance
+- Best debugging tools for audio issues
+- Most stable implementation
+
+**Recommended version:** Chrome 90+
+
+### Firefox
+
+Firefox works well with minor considerations:
+
+- AudioWorklet supported since version 76
+- May have slightly different audio processing characteristics
+- Ensure you're using Firefox 80+ for best results
+- Developer tools are excellent for debugging
+
+### Safari (macOS & iOS)
+
+<Warning>
+  Safari has limited AudioWorklet support and may experience stability issues.
+</Warning>
+
+**Known Issues:**
+
+1. **AudioWorklet instability:** May crash or fail to load intermittently
+2. **Sample rate issues:** Safari may not respect the requested 16000 Hz sample rate
+3. **Permission prompts:** More restrictive microphone permissions
+4. **Background tab behavior:** Audio processing may pause when tab is not active
+
+**Safari Workarounds:**
+
+```javascript
+// Handle Safari's sample rate quirks
+audioContext = new AudioContext({
+  sampleRate: 16000,
+  latencyHint: 'balanced'
+});
+
+// Check actual sample rate
+console.log('Requested: 16000 Hz, Actual:', audioContext.sampleRate);
+
+if (audioContext.sampleRate !== 16000) {
+  console.warn('Sample rate mismatch! Resampling may be required.');
+  // You may need to implement resampling logic
+}
+```
+
+**Recommendation:** Use Chrome or Firefox for best results. Safari should be considered experimental.
+
+### Edge (Chromium)
+
+Edge (version 79+) is Chromium-based and fully compatible:
+
+- Same engine as Chrome
+- Excellent performance and compatibility
+- Fully recommended
+
+### Mobile Browsers
+
+**Android:**
+- Chrome for Android (96+): Good support
+- Firefox for Android (96+): Good support
+- Samsung Internet (12+): Generally works
+
+**iOS:**
+- Safari (14.5+): Limited support, use with caution
+- Chrome/Firefox for iOS: Use Safari's engine, same limitations
+- Recommendation: Test thoroughly on target devices
+
+**Mobile Considerations:**
+- Battery usage is higher during real-time transcription
+- Background processing may be limited or unavailable
+- Network switching (WiFi to cellular) may interrupt WebSocket
+- Some devices may have memory constraints
+
+## Testing Your Browser
+
+You can test browser compatibility at:
+
+- [Can I Use - AudioWorklet](https://caniuse.com/mdn-api_audioworklet)
+- [Can I Use - WebSocket](https://caniuse.com/websockets)
+- [Can I Use - getUserMedia](https://caniuse.com/stream)
+
+## Debugging Browser Issues
+
+### Enable Verbose Logging
+
+```javascript
+// Add detailed logging for browser API calls
+console.log('Browser:', navigator.userAgent);
+console.log('AudioContext available:', !!window.AudioContext);
+console.log('AudioWorkletNode available:', !!AudioWorkletNode);
+console.log('WebSocket available:', !!window.WebSocket);
+console.log('getUserMedia available:', !!navigator.mediaDevices?.getUserMedia);
+```
+
+### Chrome DevTools
+
+1. Open DevTools (F12)
+2. Go to "Application" tab → "Service Workers"
+3. Check "WebSocket" frames in Network tab
+4. Use "Media" panel to inspect audio devices
+
+### Firefox DevTools
+
+1. Open DevTools (F12)
+2. Console shows WebSocket frames
+3. Network tab → WS filter for WebSocket traffic
+4. about:config → search "media" for audio settings
+
+## Feature Detection Best Practices
+
+Always use feature detection, not browser detection:
+
+```javascript
+// Good: Feature detection
+if ('AudioWorklet' in AudioContext.prototype) {
+  // Use AudioWorklet
+} else {
+  // Fallback or error message
+}
+
+// Bad: Browser detection
+if (navigator.userAgent.includes('Chrome')) {
+  // Don't do this
+}
+```
+
+## Polyfills and Fallbacks
+
+There are no reliable polyfills for AudioWorklet. If the browser doesn't support it, consider:
+
+1. **ScriptProcessorNode (deprecated):** Old API, higher latency, not recommended
+2. **Display a compatibility message:** Suggest upgrading to a modern browser
+3. **Server-side processing:** Alternative architecture without browser audio processing
+
+## Recommended Setup
+
+For best results:
+
+- **Desktop:** Chrome 90+, Firefox 90+, or Edge 90+
+- **Mobile:** Chrome for Android 100+
+- **Avoid:** Safari on both desktop and iOS if possible
+- **Development:** Use Chrome for debugging and testing
+- **Production:** Test on all target browsers before deployment
+
+## Getting Help
+
+If you encounter browser-specific issues:
+
+1. Check the [Common Issues](/troubleshooting/common-issues) guide
+2. Verify your browser version meets minimum requirements
+3. Test in a different browser to isolate the issue
+4. Contact support@assemblyai.com with:
+   - Browser name and version
+   - Operating system
+   - Console error messages
+   - Steps to reproduce

@@ -1,0 +1,289 @@
+---
+title: 'WebSocket Integration'
+description: 'Connect to AssemblyAI streaming endpoint, send audio data, and manage the connection lifecycle'
+---
+
+This guide covers establishing a WebSocket connection to AssemblyAI's real-time transcription service and managing the connection lifecycle.
+
+## WebSocket Connection Flow
+
+The connection process involves:
+1. Fetching a temporary token from your server
+2. Connecting to AssemblyAI's WebSocket endpoint
+3. Sending audio data when the connection opens
+4. Handling incoming transcript messages
+5. Properly closing the connection
+
+## Fetching the Temporary Token
+
+<Steps>
+  <Step title="Request token from your server">
+    Before connecting to AssemblyAI, get a temporary token:
+
+```javascript public/index.js
+const response = await fetch("http://localhost:8000/token");
+const data = await response.json();
+if (data.error || !data.token) {
+  alert("Failed to get temp token");
+  return;
+}
+```
+
+**Token validation:** Check for the `error` field in the response, verify that `token` exists before proceeding, and handle failures gracefully by alerting the user.
+  </Step>
+
+  <Step title="Build the WebSocket URL">
+    Construct the endpoint URL with query parameters:
+
+```javascript public/index.js
+const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+```
+
+**Query parameters explained:**
+- `sample_rate=16000`: Must match your AudioContext sample rate
+- `formatted_finals=true`: Returns formatted transcripts with punctuation
+- `token=${data.token}`: Your temporary authentication token
+
+<Info>
+The `sample_rate` parameter must exactly match the sample rate you configured in your AudioContext (16000 Hz).
+</Info>
+  </Step>
+
+  <Step title="Create the WebSocket connection">
+    Initialize the WebSocket:
+
+```javascript public/index.js
+ws = new WebSocket(endpoint);
+```
+
+The connection will begin establishing. Use event handlers to manage the lifecycle.
+  </Step>
+</Steps>
+
+## WebSocket Event Handlers
+
+### onopen - Connection Established
+
+When the WebSocket successfully connects, start sending audio:
+
+```javascript public/index.js
+ws.onopen = () => {
+  console.log("WebSocket connected!");
+  messageEl.style.display = "";
+  microphone.startRecording((audioChunk) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(audioChunk);
+    }
+  });
+};
+```
+
+**Sequence:**
+1. Log connection success (line 2)
+2. Show the transcript message element (line 3)
+3. Start recording with callback (line 4)
+4. Check WebSocket is still open before sending (line 5)
+5. Send each audio chunk as it's buffered (line 6)
+
+<Tip>
+Always check `ws.readyState === WebSocket.OPEN` before sending data to avoid errors if the connection closes unexpectedly.
+</Tip>
+
+### onmessage - Receiving Transcripts
+
+Handle incoming messages from AssemblyAI:
+
+```javascript public/index.js
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    const { turn_order, transcript } = msg;
+    turns[turn_order] = transcript;
+
+    const orderedTurns = Object.keys(turns)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => turns[k])
+      .join(" ");
+
+    messageEl.innerText = orderedTurns;
+  }
+};
+```
+
+**Message processing:**
+1. Parse JSON message from AssemblyAI (line 2)
+2. Check if it's a "Turn" message (line 3)
+3. Extract turn order and transcript (line 4)
+4. Store in turns object keyed by order (line 5)
+5. Sort turns numerically (line 7-8)
+6. Join all turns into a single string (line 9-10)
+7. Update the UI with the complete transcript (line 12)
+
+<Info>
+The Turn message type represents complete utterances. See [Handling Transcripts](/guides/handling-transcripts) for detailed message structure.
+</Info>
+
+### onerror - Connection Errors
+
+Handle WebSocket errors:
+
+```javascript public/index.js
+ws.onerror = (err) => {
+  console.error("WebSocket error:", err);
+  alert("WebSocket error, check the console.");
+};
+```
+
+**Error handling:**
+- Log error details for debugging
+- Alert user about the problem
+- Consider cleanup and reconnection logic
+
+### onclose - Connection Closed
+
+Handle connection closure:
+
+```javascript public/index.js
+ws.onclose = () => {
+  console.log("WebSocket closed");
+};
+```
+
+This fires when:
+- You explicitly close the connection
+- The server closes the connection
+- Network issues cause disconnection
+
+## Sending Audio Data
+
+Audio chunks are sent as binary data:
+
+```javascript public/index.js
+microphone.startRecording((audioChunk) => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(audioChunk);
+  }
+});
+```
+
+**Audio transmission:**
+- `audioChunk` is a `Uint8Array` containing 100ms of audio
+- WebSocket sends it as binary (not JSON)
+- AssemblyAI processes it in real-time
+
+## Terminating the Session
+
+Properly close the connection when stopping:
+
+```javascript public/index.js
+if (ws) {
+  ws.send(JSON.stringify({ type: "Terminate" }));
+  ws.close();
+  ws = null;
+}
+```
+
+**Termination steps:**
+1. Send `Terminate` message to notify AssemblyAI (line 2)
+2. Close the WebSocket connection (line 3)
+3. Clear the reference (line 4)
+
+<Warning>
+Always send the Terminate message before closing to ensure AssemblyAI properly ends your session and finalizes any pending transcripts.
+</Warning>
+
+## Complete Connection Lifecycle
+
+Here's the full flow for starting and stopping:
+
+```javascript public/index.js
+async function run() {
+  if (isRecording) {
+    // Stop recording
+    if (ws) {
+      ws.send(JSON.stringify({ type: "Terminate" }));
+      ws.close();
+      ws = null;
+    }
+    if (microphone) {
+      microphone.stopRecording();
+      microphone = null;
+    }
+  } else {
+    // Start recording
+    microphone = createMicrophone();
+    await microphone.requestPermission();
+
+    const response = await fetch("http://localhost:8000/token");
+    const data = await response.json();
+    if (data.error || !data.token) {
+      alert("Failed to get temp token");
+      return;
+    }
+
+    const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+    ws = new WebSocket(endpoint);
+
+    const turns = {};
+
+    ws.onopen = () => {
+      console.log("WebSocket connected!");
+      messageEl.style.display = "";
+      microphone.startRecording((audioChunk) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(audioChunk);
+        }
+      });
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "Turn") {
+        const { turn_order, transcript } = msg;
+        turns[turn_order] = transcript;
+
+        const orderedTurns = Object.keys(turns)
+          .sort((a, b) => Number(a) - Number(b))
+          .map((k) => turns[k])
+          .join(" ");
+
+        messageEl.innerText = orderedTurns;
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+      alert("WebSocket error, check the console.");
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket closed");
+    };
+  }
+
+  isRecording = !isRecording;
+  buttonEl.innerText = isRecording ? "Stop" : "Record";
+  titleEl.innerText = isRecording
+    ? "Click stop to end recording!"
+    : "Click start to begin recording!";
+}
+```
+
+## Connection State Management
+
+Check the WebSocket state before operations:
+
+```javascript
+WebSocket.CONNECTING  // 0 - Connection is being established
+WebSocket.OPEN        // 1 - Connection is open and ready
+WebSocket.CLOSING     // 2 - Connection is being closed
+WebSocket.CLOSED      // 3 - Connection is closed
+```
+
+Always verify `ws.readyState === WebSocket.OPEN` before sending data.
+
+## Next Steps
+
+With your WebSocket connected:
+- Learn about [handling transcript messages](/guides/handling-transcripts)
+- Understand the Turn message format and ordering

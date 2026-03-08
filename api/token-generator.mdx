@@ -1,0 +1,93 @@
+---
+title: 'Token Generator'
+description: 'Generate temporary authentication tokens for AssemblyAI streaming'
+---
+
+## generateTempToken()
+
+Generates a temporary authentication token for AssemblyAI's real-time transcription API.
+
+### Function Signature
+
+```javascript
+async function generateTempToken(expiresInSeconds)
+```
+
+Defined in `tokenGenerator.js:4`
+
+### Parameters
+
+<ParamField path="expiresInSeconds" type="number" required>
+  The number of seconds until the token expires. Maximum value is 600 seconds (10 minutes).
+</ParamField>
+
+### Return Value
+
+Returns a `Promise<string>` that resolves to the temporary authentication token.
+
+```javascript
+return response.data.token;
+```
+
+### Error Handling
+
+The function throws an error if:
+- The AssemblyAI API key is missing or invalid
+- The API request fails due to network issues
+- The AssemblyAI token generation endpoint is unavailable
+
+Error messages are logged to the console with details from the API response:
+
+```javascript
+console.error("Error generating temp token:", error.response?.data || error.message);
+throw error;
+```
+
+### Implementation
+
+The function makes an HTTP GET request to AssemblyAI's token generation endpoint:
+
+```javascript
+const url = `https://streaming.assemblyai.com/v3/token?expires_in_seconds=${expiresInSeconds}`;
+
+try {
+  const response = await axios.get(url, {
+    headers: {
+      Authorization: process.env.ASSEMBLYAI_API_KEY,
+    },
+  });
+  return response.data.token;
+} catch (error) {
+  console.error("Error generating temp token:", error.response?.data || error.message);
+  throw error;
+}
+```
+
+### Environment Variables
+
+<ParamField path="ASSEMBLYAI_API_KEY" type="string" required>
+  Your AssemblyAI API key. Must be set in the `.env` file and loaded via `dotenv`.
+</ParamField>
+
+### Usage Example
+
+```javascript
+const { generateTempToken } = require("./tokenGenerator");
+
+// Generate a token that expires in 60 seconds
+try {
+  const token = await generateTempToken(60);
+  console.log("Token generated:", token);
+} catch (error) {
+  console.error("Failed to generate token:", error);
+}
+```
+
+### Integration
+
+This function is used by the Express server in `server.js:12` to provide tokens to the client application:
+
+```javascript
+const token = await generateTempToken(60); // Max value 600
+res.json({ token });
+```

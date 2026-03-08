@@ -1,0 +1,147 @@
+---
+title: 'Audio Processor'
+description: 'AudioWorklet processor for converting audio to the required format'
+---
+
+## AudioProcessor Class
+
+An `AudioWorkletProcessor` that converts Float32 audio data to Int16 format for streaming to AssemblyAI's real-time transcription service.
+
+Defined in `audio-processor.js:3-25`
+
+### Overview
+
+The `AudioProcessor` class extends the browser's `AudioWorkletProcessor` API to process audio samples in real-time. It converts 32-bit floating-point audio data to 16-bit integer format, which is the required format for AssemblyAI's streaming API.
+
+### Class Definition
+
+```javascript
+class AudioProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    // Implementation
+  }
+}
+
+registerProcessor('audio-processor', AudioProcessor);
+```
+
+## process() Method
+
+Processes incoming audio data and converts it from Float32 to Int16 format.
+
+### Method Signature
+
+```javascript
+process(inputs)
+```
+
+### Parameters
+
+<ParamField path="inputs" type="Array<Array<Float32Array>>">
+  Array of inputs, where each input is an array of channels, and each channel contains Float32Array audio samples.
+</ParamField>
+
+### Return Value
+
+Returns `boolean`:
+- `true` - Keep the processor alive and continue processing
+- `false` - Stop processing (returned when an error occurs)
+
+### Audio Conversion
+
+The processor performs Float32 to Int16 conversion using the following algorithm:
+
+#### Conversion Constant
+
+```javascript
+const MAX_16BIT_INT = 32767
+```
+
+Defined in `audio-processor.js:1`
+
+#### Conversion Process
+
+1. Extract Float32 channel data (values range from -1.0 to 1.0)
+2. Convert to Int16 by multiplying by `MAX_16BIT_INT` (32767)
+3. Transfer the buffer to the main thread via `postMessage()`
+
+```javascript
+const float32Array = Float32Array.from(channelData)
+const int16Array = Int16Array.from(
+  float32Array.map((n) => n * MAX_16BIT_INT)
+)
+const buffer = int16Array.buffer
+this.port.postMessage({ audio_data: buffer })
+```
+
+See implementation in `audio-processor.js:12-17`
+
+### Message Posting
+
+The processor posts messages to the main thread containing the converted audio data:
+
+```javascript
+this.port.postMessage({ audio_data: buffer })
+```
+
+The message structure:
+
+<ResponseField name="audio_data" type="ArrayBuffer">
+  An ArrayBuffer containing Int16 audio samples ready for transmission to AssemblyAI.
+</ResponseField>
+
+### Error Handling
+
+The processor includes error handling for missing inputs or channel data:
+
+```javascript
+try {
+  const input = inputs[0]
+  if (!input) throw new Error('No input')
+
+  const channelData = input[0]
+  if (!channelData) throw new Error('No channelData')
+  
+  // ... processing logic
+  
+  return true
+} catch (error) {
+  console.error(error)
+  return false
+}
+```
+
+When an error occurs, the processor:
+1. Logs the error to the console
+2. Returns `false` to stop processing
+
+### Usage Example
+
+The AudioProcessor is loaded and instantiated in the main application:
+
+```javascript
+// Load the audio worklet module
+await audioContext.audioWorklet.addModule('audio-processor.js');
+
+// Create an instance of the AudioProcessor
+const audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+
+// Connect the audio source
+source.connect(audioWorkletNode);
+audioWorkletNode.connect(audioContext.destination);
+
+// Listen for processed audio data
+audioWorkletNode.port.onmessage = (event) => {
+  const currentBuffer = new Int16Array(event.data.audio_data);
+  // Process the audio buffer
+};
+```
+
+See the complete implementation in `public/index.js:32-51`.
+
+### Technical Notes
+
+- The processor runs on a separate audio thread for optimal performance
+- Audio samples are processed in chunks determined by the browser's audio system
+- The conversion maintains audio quality while reducing bit depth from 32 to 16 bits
+- The 16-bit format is more efficient for network transmission and compatible with AssemblyAI's API

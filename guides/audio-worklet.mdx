@@ -1,0 +1,232 @@
+---
+title: 'Implementing the Audio Worklet'
+description: 'Convert Float32 audio samples to Int16 PCM format and buffer chunks for efficient streaming'
+---
+
+The Audio Worklet processes raw microphone data in real-time, converting it from Float32Array format to the Int16 PCM format required by AssemblyAI.
+
+## Why Audio Worklet?
+
+Audio Worklets run on a separate thread from the main UI, ensuring:
+- Consistent, low-latency audio processing
+- No audio glitches from UI blocking
+- Efficient real-time conversion and buffering
+
+## AudioProcessor Class
+
+Create an `audio-processor.js` file in your `public/` directory:
+
+```javascript audio-processor.js
+const MAX_16BIT_INT = 32767
+
+class AudioProcessor extends AudioWorkletProcessor {
+  process(inputs) {
+    try {
+      const input = inputs[0]
+      if (!input) throw new Error('No input')
+
+      const channelData = input[0]
+      if (!channelData) throw new Error('No channelData')
+
+      const float32Array = Float32Array.from(channelData)
+      const int16Array = Int16Array.from(
+        float32Array.map((n) => n * MAX_16BIT_INT)
+      )
+      const buffer = int16Array.buffer
+      this.port.postMessage({ audio_data: buffer })
+
+      return true
+    } catch (error) {
+      console.error(error)
+      return false
+    }
+  }
+}
+
+registerProcessor('audio-processor', AudioProcessor)
+```
+
+## Understanding the Conversion
+
+<Steps>
+  <Step title="Extract audio input">
+    The `process()` method receives audio data as inputs:
+
+```javascript
+const input = inputs[0]          // First input source
+const channelData = input[0]     // First channel (mono)
+```
+
+**Structure:** `inputs[0]` is the first audio input (the microphone), `input[0]` is the first channel (we use mono audio), and data arrives as Float32Array with values between -1.0 and 1.0.
+  </Step>
+
+  <Step title="Convert Float32 to Int16">
+    Transform the floating-point samples to 16-bit integers:
+
+```javascript
+const MAX_16BIT_INT = 32767
+
+const float32Array = Float32Array.from(channelData)
+const int16Array = Int16Array.from(
+  float32Array.map((n) => n * MAX_16BIT_INT)
+)
+```
+
+**Conversion formula:**
+- Float32 range: `-1.0` to `1.0`
+- Int16 range: `-32768` to `32767`
+- Multiply each sample by `32767` to scale to Int16
+
+<Info>
+This conversion maintains audio fidelity while matching AssemblyAI's required PCM format.
+</Info>
+  </Step>
+
+  <Step title="Send to main thread">
+    Post the converted audio data back to the main thread:
+
+```javascript
+const buffer = int16Array.buffer
+this.port.postMessage({ audio_data: buffer })
+```
+
+The `ArrayBuffer` is transferred efficiently to the main thread where buffering logic handles it.
+  </Step>
+
+  <Step title="Return true to continue processing">
+    Returning `true` keeps the processor active:
+
+```javascript
+return true  // Keep processing audio
+```
+
+Returning `false` would stop the audio processing.
+  </Step>
+</Steps>
+
+## Buffering Audio Chunks
+
+The main thread receives converted audio and buffers it into 100ms chunks before sending to the WebSocket.
+
+### Receiving Processed Audio
+
+In your main JavaScript file:
+
+```javascript public/index.js
+audioWorkletNode.port.onmessage = (event) => {
+  const currentBuffer = new Int16Array(event.data.audio_data);
+  audioBufferQueue = mergeBuffers(audioBufferQueue, currentBuffer);
+
+  const bufferDuration = (audioBufferQueue.length / audioContext.sampleRate) * 1000;
+
+  if (bufferDuration >= 100) {
+    const totalSamples = Math.floor(audioContext.sampleRate * 0.1);
+    const finalBuffer = new Uint8Array(audioBufferQueue.subarray(0, totalSamples).buffer);
+    audioBufferQueue = audioBufferQueue.subarray(totalSamples);
+
+    if (onAudioCallback) onAudioCallback(finalBuffer);
+  }
+};
+```
+
+### Buffer Merging
+
+Combine new audio with the existing queue:
+
+```javascript public/index.js
+function mergeBuffers(lhs, rhs) {
+  const merged = new Int16Array(lhs.length + rhs.length);
+  merged.set(lhs, 0);
+  merged.set(rhs, lhs.length);
+  return merged;
+}
+```
+
+**Process:**
+1. Create new array large enough for both buffers
+2. Copy existing buffer to start
+3. Append new buffer to end
+
+### Calculating Buffer Duration
+
+```javascript
+const bufferDuration = (audioBufferQueue.length / audioContext.sampleRate) * 1000;
+```
+
+**Math breakdown:**
+- `audioBufferQueue.length`: Number of samples
+- `audioContext.sampleRate`: 16000 samples per second
+- `/ sampleRate`: Converts samples to seconds
+- `* 1000`: Converts seconds to milliseconds
+
+**Example:** 1600 samples ÷ 16000 Hz × 1000 = 100ms
+
+### Creating 100ms Chunks
+
+```javascript
+if (bufferDuration >= 100) {
+  const totalSamples = Math.floor(audioContext.sampleRate * 0.1);
+  const finalBuffer = new Uint8Array(audioBufferQueue.subarray(0, totalSamples).buffer);
+  audioBufferQueue = audioBufferQueue.subarray(totalSamples);
+
+  if (onAudioCallback) onAudioCallback(finalBuffer);
+}
+```
+
+**Chunk creation:**
+1. Check if buffer has at least 100ms of audio (line 1)
+2. Calculate samples needed: `16000 × 0.1 = 1600 samples` (line 2)
+3. Extract first 100ms as `Uint8Array` for WebSocket (line 3)
+4. Remove sent samples from queue (line 4)
+5. Call callback to send chunk (line 6)
+
+## Why 100ms Chunks?
+
+Sending audio in 100ms intervals provides:
+- **Low latency**: Quick transcription responses
+- **Efficient bandwidth**: Not too small (overhead) or large (delay)
+- **Stable processing**: Consistent chunk size for the streaming API
+
+## Data Flow Summary
+
+```
+Microphone
+    ↓
+AudioContext (16kHz)
+    ↓
+AudioWorkletProcessor
+    ├─ Float32Array received
+    ├─ Convert to Int16Array
+    └─ Post to main thread
+        ↓
+Main Thread Buffering
+    ├─ Merge into queue
+    ├─ Check if >= 100ms
+    └─ Extract & send chunk
+        ↓
+WebSocket → AssemblyAI
+```
+
+## Error Handling
+
+The processor includes basic error handling:
+
+```javascript
+try {
+  // Processing logic
+  return true
+} catch (error) {
+  console.error(error)
+  return false  // Stop processing on error
+}
+```
+
+<Warning>
+If the processor returns `false`, audio processing stops. Ensure errors are caught and logged for debugging.
+</Warning>
+
+## Next Steps
+
+With audio properly formatted:
+- Learn how to [connect to AssemblyAI's WebSocket](/guides/websocket-integration)
+- Send your audio chunks for real-time transcription

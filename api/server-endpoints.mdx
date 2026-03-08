@@ -1,0 +1,78 @@
+---
+title: 'Server Endpoints'
+description: 'API endpoints provided by the Express server'
+---
+
+## GET /token
+
+Generates a temporary authentication token for AssemblyAI's real-time transcription service.
+
+### Request
+
+```http
+GET /token HTTP/1.1
+Host: localhost:8000
+```
+
+No request parameters are required.
+
+### Response
+
+<ResponseField name="token" type="string">
+  A temporary authentication token valid for 60 seconds. This token is used to establish a WebSocket connection with AssemblyAI's streaming service.
+</ResponseField>
+
+**Success Response (200 OK)**
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+### Error Handling
+
+**Error Response (500 Internal Server Error)**
+
+```json
+{
+  "error": "Failed to generate token"
+}
+```
+
+This error occurs when:
+- The AssemblyAI API key is invalid or missing
+- The token generation service is unavailable
+- Network connectivity issues prevent token generation
+
+### Implementation Details
+
+The endpoint is defined in `server.js:10-17` and internally calls the `generateTempToken()` function with a 60-second expiration time (the maximum allowed value is 600 seconds).
+
+```javascript
+app.get("/token", async (req, res) => {
+  try {
+    const token = await generateTempToken(60); // Max value 600
+    res.json({ token });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to generate token" });
+  }
+});
+```
+
+### Usage Example
+
+```javascript
+const response = await fetch("http://localhost:8000/token");
+const data = await response.json();
+
+if (data.error || !data.token) {
+  alert("Failed to get temp token");
+  return;
+}
+
+const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+const ws = new WebSocket(endpoint);
+```
+
+See the complete implementation in `public/index.js:83-90`.

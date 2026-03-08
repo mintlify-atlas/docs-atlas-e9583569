@@ -1,0 +1,262 @@
+---
+title: 'Microphone Manager'
+description: 'Factory function for managing microphone access and audio recording'
+---
+
+## createMicrophone()
+
+Factory function that creates a microphone manager object with methods for requesting permissions, starting, and stopping audio recording.
+
+Defined in `public/index.js:12-59`
+
+### Function Signature
+
+```javascript
+function createMicrophone()
+```
+
+### Return Value
+
+Returns an object with the following methods:
+- `requestPermission()` - Request microphone access from the user
+- `startRecording(callback)` - Start recording audio and invoke callback with audio data
+- `stopRecording()` - Stop recording and clean up resources
+
+### Internal State
+
+The returned object maintains the following internal state:
+
+```javascript
+let stream;              // MediaStream from getUserMedia
+let audioContext;        // AudioContext (16kHz sample rate)
+let audioWorkletNode;    // AudioWorkletNode for processing
+let source;              // MediaStreamSource node
+let audioBufferQueue;    // Int16Array buffer for audio chunks
+```
+
+## Methods
+
+### requestPermission()
+
+Requests microphone access permission from the user.
+
+#### Method Signature
+
+```javascript
+async requestPermission()
+```
+
+#### Return Value
+
+Returns a `Promise<void>` that resolves when permission is granted.
+
+#### Implementation
+
+```javascript
+async requestPermission() {
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+}
+```
+
+See `public/index.js:20-22`
+
+#### Error Handling
+
+Throws an error if:
+- User denies microphone permission
+- No microphone device is available
+- Browser doesn't support `getUserMedia`
+
+### startRecording()
+
+Starts recording audio and processes it through an AudioWorklet.
+
+#### Method Signature
+
+```javascript
+async startRecording(onAudioCallback)
+```
+
+#### Parameters
+
+<ParamField path="onAudioCallback" type="function" required>
+  Callback function invoked with audio data chunks. Receives a `Uint8Array` containing 100ms of audio data at 16kHz sample rate.
+  
+  **Callback Signature:**
+  ```javascript
+  function(audioChunk: Uint8Array): void
+  ```
+</ParamField>
+
+#### Return Value
+
+Returns a `Promise<void>` that resolves when recording has started.
+
+#### Implementation Details
+
+The method performs the following steps:
+
+1. **Request stream if not available:**
+   ```javascript
+   if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+   ```
+
+2. **Create AudioContext with 16kHz sample rate:**
+   ```javascript
+   audioContext = new AudioContext({
+     sampleRate: 16000,
+     latencyHint: 'balanced'
+   });
+   ```
+
+3. **Set up AudioWorklet processing:**
+   ```javascript
+   source = audioContext.createMediaStreamSource(stream);
+   await audioContext.audioWorklet.addModule('audio-processor.js');
+   
+   audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+   source.connect(audioWorkletNode);
+   audioWorkletNode.connect(audioContext.destination);
+   ```
+
+4. **Process audio messages with buffering:**
+   ```javascript
+   audioWorkletNode.port.onmessage = (event) => {
+     const currentBuffer = new Int16Array(event.data.audio_data);
+     audioBufferQueue = mergeBuffers(audioBufferQueue, currentBuffer);
+     
+     const bufferDuration = (audioBufferQueue.length / audioContext.sampleRate) * 1000;
+     
+     if (bufferDuration >= 100) {
+       const totalSamples = Math.floor(audioContext.sampleRate * 0.1);
+       const finalBuffer = new Uint8Array(audioBufferQueue.subarray(0, totalSamples).buffer);
+       audioBufferQueue = audioBufferQueue.subarray(totalSamples);
+       
+       if (onAudioCallback) onAudioCallback(finalBuffer);
+     }
+   };
+   ```
+
+See implementation in `public/index.js:23-52`
+
+#### Audio Buffering Strategy
+
+- Audio data is buffered until at least 100ms of audio is accumulated
+- Each callback receives exactly 100ms of audio (1,600 samples at 16kHz)
+- Remaining audio is kept in the buffer for the next chunk
+- This ensures consistent chunk sizes for optimal streaming performance
+
+### stopRecording()
+
+Stops recording and cleans up all audio resources.
+
+#### Method Signature
+
+```javascript
+stopRecording()
+```
+
+#### Return Value
+
+Returns `void` (no return value).
+
+#### Implementation
+
+```javascript
+stopRecording() {
+  stream?.getTracks().forEach((track) => track.stop());
+  audioContext?.close();
+  audioBufferQueue = new Int16Array(0);
+}
+```
+
+See `public/index.js:53-57`
+
+#### Cleanup Operations
+
+1. Stops all media stream tracks (releases microphone access)
+2. Closes the AudioContext (frees audio processing resources)
+3. Clears the audio buffer queue (frees memory)
+
+## Usage Example
+
+### Basic Usage
+
+```javascript
+// Create a microphone instance
+const microphone = createMicrophone();
+
+// Request permission
+await microphone.requestPermission();
+
+// Start recording with a callback
+await microphone.startRecording((audioChunk) => {
+  // Send audio to WebSocket
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(audioChunk);
+  }
+});
+
+// Later: stop recording
+microphone.stopRecording();
+```
+
+### Complete Integration Example
+
+From `public/index.js:80-102`:
+
+```javascript
+microphone = createMicrophone();
+await microphone.requestPermission();
+
+const response = await fetch("http://localhost:8000/token");
+const data = await response.json();
+
+if (data.error || !data.token) {
+  alert("Failed to get temp token");
+  return;
+}
+
+const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+ws = new WebSocket(endpoint);
+
+ws.onopen = () => {
+  console.log("WebSocket connected!");
+  messageEl.style.display = "";
+  microphone.startRecording((audioChunk) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(audioChunk);
+    }
+  });
+};
+```
+
+## Technical Specifications
+
+### Audio Configuration
+
+<ParamField path="sampleRate" type="number" default="16000">
+  Sample rate in Hz. AssemblyAI's API requires 16kHz audio.
+</ParamField>
+
+<ParamField path="latencyHint" type="string" default="balanced">
+  Audio processing latency hint. Options: `'interactive'`, `'balanced'`, `'playback'`.
+</ParamField>
+
+<ParamField path="chunkDuration" type="number" default="100">
+  Duration of each audio chunk in milliseconds.
+</ParamField>
+
+<ParamField path="chunkSize" type="number" default="1600">
+  Number of samples per chunk (16000 Hz × 0.1 seconds = 1600 samples).
+</ParamField>
+
+### Browser Compatibility
+
+Requires browser support for:
+- `navigator.mediaDevices.getUserMedia()`
+- `AudioContext`
+- `AudioWorklet` API
+- `MediaStream` API
+
+Supported in all modern browsers (Chrome, Firefox, Safari, Edge).

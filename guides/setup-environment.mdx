@@ -1,0 +1,125 @@
+---
+title: 'Setting Up the Environment'
+description: 'Configure your Express server, environment variables, and token generation endpoint for real-time transcription'
+---
+
+This guide walks you through setting up the backend server that generates temporary tokens for secure AssemblyAI WebSocket connections.
+
+## Environment Configuration
+
+First, create an `.env` file in your project root to store your AssemblyAI API key securely:
+
+```bash .env
+ASSEMBLYAI_API_KEY=YOUR_API_KEY
+```
+
+<Warning>
+Never commit your `.env` file to version control. Add it to your `.gitignore` file to keep your API key secure.
+</Warning>
+
+## Token Generation Function
+
+The token generator creates temporary tokens that expire after a specified duration. This prevents exposing your permanent API key to the browser.
+
+<Steps>
+  <Step title="Create the token generator module">
+    Create a `tokenGenerator.js` file that requests temporary tokens from AssemblyAI:
+
+```javascript tokenGenerator.js
+const axios = require('axios');
+require("dotenv").config();
+
+async function generateTempToken(expiresInSeconds) {
+  const url = `https://streaming.assemblyai.com/v3/token?expires_in_seconds=${expiresInSeconds}`;
+
+  try {
+    const response = await axios.get(url, {
+      headers: {
+        Authorization: process.env.ASSEMBLYAI_API_KEY,
+      },
+    });
+    return response.data.token;
+  } catch (error) {
+    console.error("Error generating temp token:", error.response?.data || error.message);
+    throw error;
+  }
+}
+
+module.exports = { generateTempToken };
+```
+
+**Key points:** Uses your permanent API key from environment variables, requests tokens with configurable expiration (max 600 seconds), and returns the temporary token string.
+  </Step>
+
+  <Step title="Set up the Express server">
+    Create a `server.js` file that serves your frontend and provides the token endpoint:
+
+```javascript server.js
+const express = require("express");
+const path = require("path");
+const { generateTempToken } = require("./tokenGenerator");
+
+const app = express();
+const PORT = 8000;
+
+// Serve static files from the public directory
+app.use(express.static(path.join(__dirname, "public")));
+
+// Token endpoint
+app.get("/token", async (req, res) => {
+  try {
+    const token = await generateTempToken(60); // Token expires in 60 seconds
+    res.json({ token });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to generate token" });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running at http://localhost:${PORT}`);
+});
+```
+
+**Server responsibilities:** Serves static frontend files from the `public/` directory (line 8), provides a `/token` endpoint that generates temporary tokens (lines 10-17), and returns tokens with 60-second expiration (maximum is 600 seconds).
+  </Step>
+
+  <Step title="Install dependencies">
+    Install the required npm packages:
+
+```bash
+npm install express axios dotenv
+```
+  </Step>
+
+  <Step title="Start the server">
+    Run your server:
+
+```bash
+node server.js
+```
+
+You should see:
+```
+Server is running at http://localhost:8000
+```
+  </Step>
+</Steps>
+
+## How It Works
+
+The token flow ensures your API key never reaches the browser:
+
+1. **Client requests token**: Browser calls `GET /token`
+2. **Server authenticates**: Server uses permanent API key to request temporary token from AssemblyAI
+3. **Token returned**: Server sends temporary token to browser
+4. **WebSocket connection**: Browser uses temporary token to connect to AssemblyAI's streaming endpoint
+
+<Info>
+Temporary tokens are single-use and expire after the specified duration. This provides security while allowing client-side WebSocket connections.
+</Info>
+
+## Next Steps
+
+With your server configured, you're ready to:
+- [Request microphone access](/guides/microphone-access) from the user
+- Connect to AssemblyAI's streaming endpoint using the temporary token

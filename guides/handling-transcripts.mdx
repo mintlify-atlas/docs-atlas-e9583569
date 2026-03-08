@@ -1,0 +1,329 @@
+---
+title: 'Handling Transcripts'
+description: 'Process Turn messages, maintain correct turn order, and update the UI with real-time transcripts'
+---
+
+This guide explains how to receive and process transcript messages from AssemblyAI's streaming service, maintaining proper turn order for accurate transcription display.
+
+## Turn Message Structure
+
+AssemblyAI sends transcript messages with type `"Turn"` containing:
+
+```json
+{
+  "type": "Turn",
+  "turn_order": 0,
+  "transcript": "Hello, how are you today?",
+  // ... additional fields
+}
+```
+
+**Key fields:**
+- `type`: Message type identifier ("Turn" for transcripts)
+- `turn_order`: Numeric identifier for ordering utterances
+- `transcript`: The transcribed text for this turn
+
+<Info>
+Turns represent complete utterances. The `turn_order` ensures you display them in the correct sequence, even if messages arrive out of order.
+</Info>
+
+## Processing Turn Messages
+
+<Steps>
+  <Step title="Initialize turns storage">
+    Create an object to store turns by their order:
+
+```javascript public/index.js
+const turns = {}; // keyed by turn_order
+```
+
+Using an object allows fast lookups and updates by turn order.
+  </Step>
+
+  <Step title="Set up message handler">
+    Listen for WebSocket messages and parse the JSON:
+
+```javascript public/index.js
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    // Process turn message
+  }
+};
+```
+
+**Message handling:** Parse the JSON string from `event.data` (line 2), check if it's a Turn message (line 3), and filter out other message types AssemblyAI might send.
+  </Step>
+
+  <Step title="Store turn by order">
+    Extract and store the transcript:
+
+```javascript public/index.js
+const { turn_order, transcript } = msg;
+turns[turn_order] = transcript;
+```
+
+**Destructuring:** Extract `turn_order` and `transcript` from the message (line 1), store the transcript using turn_order as the key (line 2), which overwrites if the same turn is updated.
+  </Step>
+
+  <Step title="Sort and display turns">
+    Sort turns numerically and join them for display:
+
+```javascript public/index.js
+const orderedTurns = Object.keys(turns)
+  .sort((a, b) => Number(a) - Number(b))
+  .map((k) => turns[k])
+  .join(" ");
+
+messageEl.innerText = orderedTurns;
+```
+
+**Processing pipeline:**
+1. Get all turn_order keys from object (line 1)
+2. Sort keys numerically, not alphabetically (line 2)
+3. Map keys to their transcript values (line 3)
+4. Join all transcripts with spaces (line 4)
+5. Update the DOM element with complete text (line 6)
+  </Step>
+</Steps>
+
+## Why Sort Numerically?
+
+JavaScript's default sort is alphabetical, which causes issues:
+
+```javascript
+// Alphabetical sort (wrong)
+['1', '10', '2', '3'].sort()
+// Result: ['1', '10', '2', '3']
+
+// Numerical sort (correct)
+['1', '10', '2', '3'].sort((a, b) => Number(a) - Number(b))
+// Result: ['1', '2', '3', '10']
+```
+
+Always use `Number(a) - Number(b)` for turn_order sorting to maintain correct sequence.
+
+## Complete Message Handler
+
+Here's the full implementation:
+
+```javascript public/index.js
+const turns = {}; // keyed by turn_order
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    const { turn_order, transcript } = msg;
+    turns[turn_order] = transcript;
+
+    const orderedTurns = Object.keys(turns)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => turns[k])
+      .join(" ");
+
+    messageEl.innerText = orderedTurns;
+  }
+};
+```
+
+## Understanding Turn Order
+
+Turns represent natural speech segments:
+
+```
+User speaks: "Hello"        → Turn 0: "Hello"
+   (pause)
+User speaks: "How are you?" → Turn 1: "How are you?"
+   (pause)
+User speaks: "I'm great!"   → Turn 2: "I'm great!"
+```
+
+**Turn characteristics:**
+- Created when speaker pauses or stops
+- May arrive out of order due to processing time
+- Can be updated if AssemblyAI refines the transcript
+
+## Handling Message Updates
+
+Turns can be updated with refined transcripts:
+
+```javascript
+// Initial transcript
+turns[0] = "Hello there"
+
+// Updated with better accuracy
+turns[0] = "Hello there."
+```
+
+Storing by `turn_order` automatically handles updates by overwriting the previous value.
+
+## Display Best Practices
+
+### Joining Turns
+
+Join with spaces for natural reading:
+
+```javascript
+const orderedTurns = Object.keys(turns)
+  .sort((a, b) => Number(a) - Number(b))
+  .map((k) => turns[k])
+  .join(" ");  // Space between turns
+```
+
+**Result:**
+```
+"Hello How are you? I'm great!"
+```
+
+### Preserving Formatting
+
+With `formatted_finals=true`, transcripts include punctuation:
+
+```javascript
+turns[0] = "Hello."
+turns[1] = "How are you?"
+turns[2] = "I'm doing great!"
+
+// Joined: "Hello. How are you? I'm doing great!"
+```
+
+## UI Updates
+
+Update the display element with ordered transcripts:
+
+```javascript public/index.js
+const messageEl = document.getElementById("message");
+
+// In onmessage handler
+messageEl.innerText = orderedTurns;
+```
+
+**DOM updates:**
+- Use `innerText` for plain text (escapes HTML)
+- Updates happen on every Turn message
+- Display reflects current state of all turns
+
+## Clearing Transcripts
+
+When starting a new session:
+
+```javascript
+const turns = {};  // Reset turns object
+messageEl.innerText = "";  // Clear display
+```
+
+Place this in your stop/start logic to clear previous transcripts.
+
+## Complete Integration Example
+
+Here's how transcript handling fits into the full application:
+
+```javascript public/index.js
+const messageEl = document.getElementById("message");
+
+async function run() {
+  if (isRecording) {
+    // Stop recording - handled elsewhere
+  } else {
+    // Start recording
+    microphone = createMicrophone();
+    await microphone.requestPermission();
+
+    const response = await fetch("http://localhost:8000/token");
+    const data = await response.json();
+
+    const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+    ws = new WebSocket(endpoint);
+
+    const turns = {}; // Initialize turns storage
+
+    ws.onopen = () => {
+      console.log("WebSocket connected!");
+      messageEl.style.display = ""; // Show message element
+      microphone.startRecording((audioChunk) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(audioChunk);
+        }
+      });
+    };
+
+    ws.onmessage = (event) => {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "Turn") {
+        const { turn_order, transcript } = msg;
+        turns[turn_order] = transcript;
+
+        const orderedTurns = Object.keys(turns)
+          .sort((a, b) => Number(a) - Number(b))
+          .map((k) => turns[k])
+          .join(" ");
+
+        messageEl.innerText = orderedTurns;
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error("WebSocket error:", err);
+    };
+
+    ws.onclose = () => {
+      console.log("WebSocket closed");
+    };
+  }
+
+  isRecording = !isRecording;
+  buttonEl.innerText = isRecording ? "Stop" : "Record";
+}
+```
+
+## Message Type Reference
+
+While this example focuses on Turn messages, AssemblyAI may send other types:
+
+- `"Turn"`: Complete transcript for an utterance
+- `"SessionBegins"`: Connection established
+- `"PartialTranscript"`: Intermediate results (if enabled)
+- `"FinalTranscript"`: Finalized results (if not using turns)
+
+Filter for `msg.type === "Turn"` to handle only complete utterances.
+
+## Debugging Tips
+
+### Log incoming messages
+
+```javascript
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  console.log('Received:', msg);
+  
+  if (msg.type === "Turn") {
+    // Handle turn
+  }
+};
+```
+
+### Verify turn ordering
+
+```javascript
+const orderedKeys = Object.keys(turns).sort((a, b) => Number(a) - Number(b));
+console.log('Turn order:', orderedKeys);
+```
+
+### Check transcript updates
+
+```javascript
+turns[turn_order] = transcript;
+console.log(`Turn ${turn_order} updated:`, transcript);
+```
+
+## Summary
+
+Key points for handling transcripts:
+
+1. Store turns in an object keyed by `turn_order`
+2. Always sort numerically: `.sort((a, b) => Number(a) - Number(b))`
+3. Join turns with spaces for natural reading
+4. Update UI on every Turn message
+5. Use `formatted_finals=true` for punctuated transcripts
+
+With proper turn handling, your application displays accurate, ordered real-time transcripts to users.

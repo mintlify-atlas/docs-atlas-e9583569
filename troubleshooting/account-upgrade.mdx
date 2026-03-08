@@ -1,0 +1,164 @@
+---
+title: 'Account Upgrade Required'
+description: 'How to upgrade your AssemblyAI account to access the real-time transcription API'
+---
+
+<Warning>
+  The AssemblyAI Real-Time API requires an upgraded account with billing enabled. Running the application without an upgraded account will result in a 402 error.
+</Warning>
+
+## Why Upgrade is Required
+
+The real-time transcription API is a premium feature that requires an upgraded AssemblyAI account. This ensures:
+
+- Access to high-performance streaming infrastructure
+- Low-latency real-time transcription capabilities
+- Priority support and higher usage limits
+- Advanced features like speaker diarization and custom vocabulary
+
+## Understanding the 402 Error
+
+If you try to use the real-time API without an upgraded account, you'll encounter a **402 Unauthorized** status code.
+
+**What you'll see:**
+
+```javascript
+// WebSocket connection attempt fails
+WebSocket connection to 'wss://streaming.assemblyai.com/v3/ws?...' failed
+
+// Or in the token fetch response
+{
+  "error": "Account not upgraded",
+  "status": 402
+}
+```
+
+**In the browser:**
+- The "Record" button may not start recording
+- An alert: "WebSocket error, check the console."
+- Console errors related to WebSocket connection failure
+
+## How to Upgrade Your Account
+
+Follow these steps to upgrade your AssemblyAI account:
+
+### Step 1: Access Your Dashboard
+
+Go to the [AssemblyAI Dashboard](https://app.assemblyai.com/)
+
+### Step 2: Navigate to Billing
+
+1. Log in with your credentials
+2. Click on your account menu (top-right corner)
+3. Select "Billing" or "Account Settings"
+
+### Step 3: Add Payment Method
+
+1. Click "Add Payment Method" or "Upgrade Account"
+2. Enter your payment card information
+3. Complete the billing information form
+4. Click "Save" or "Submit"
+
+### Step 4: Verify Upgrade
+
+Once your payment method is added:
+
+1. Your account should be automatically upgraded
+2. You'll see a confirmation message
+3. Your dashboard will show updated usage limits
+
+### Step 5: Restart Your Application
+
+After upgrading:
+
+1. Stop the running application (Ctrl+C in the terminal)
+2. Restart with `yarn serve`
+3. Try recording again
+
+## Pricing Information
+
+AssemblyAI uses a pay-as-you-go pricing model:
+
+- You're only charged for the audio you transcribe
+- Real-time transcription is priced per audio hour
+- No monthly minimum or subscription fees
+- Free tier available for testing (limited usage)
+
+For current pricing details, visit the [AssemblyAI Pricing Page](https://www.assemblyai.com/pricing).
+
+## Billing & Usage Tracking
+
+Once upgraded, you can monitor your usage:
+
+1. Go to [app.assemblyai.com](https://app.assemblyai.com/)
+2. Navigate to the "Usage" section
+3. View:
+   - Total audio minutes transcribed
+   - Current billing period usage
+   - Estimated costs
+   - Usage history and trends
+
+## Free Tier & Testing
+
+Even with an upgraded account, AssemblyAI offers:
+
+- Free trial credits for new accounts
+- Development/testing usage allowances
+- Sandbox environments for experimentation
+
+Check your dashboard for current free tier limits.
+
+## Troubleshooting Upgrade Issues
+
+<Accordion title="Still Getting 402 Error After Upgrade">
+  If you upgraded but still see 402 errors:
+
+  1. **Wait a few minutes:** Account upgrades may take 1-2 minutes to propagate
+  2. **Verify payment was processed:** Check your email for confirmation
+  3. **Clear your API token cache:** 
+     - Stop the application
+     - Restart the server to get a fresh token
+  4. **Regenerate your API key:**
+     - Go to your dashboard
+     - Navigate to API Keys
+     - Generate a new key and update your `.env` file
+  5. **Contact support:** If issues persist, email support@assemblyai.com
+</Accordion>
+
+<Accordion title="Payment Method Declined">
+  If your payment method is declined:
+
+  1. **Check card details:** Verify card number, expiration, and CVV
+  2. **Contact your bank:** Ensure the charge is not blocked
+  3. **Try a different card:** Some cards may have restrictions on API services
+  4. **Check billing address:** Ensure it matches your card's billing address
+  5. **Try PayPal or alternative methods:** If available in your region
+</Accordion>
+
+<Accordion title="Need Invoice or Receipt">
+  For billing documentation:
+
+  1. Go to [app.assemblyai.com](https://app.assemblyai.com/)
+  2. Navigate to "Billing" → "Invoices"
+  3. Download invoices for any billing period
+  4. Receipts are automatically emailed after each charge
+  5. For custom invoices, contact support@assemblyai.com
+</Accordion>
+
+## Downgrading or Cancelling
+
+If you need to downgrade:
+
+1. Go to your dashboard billing settings
+2. Remove your payment method
+3. Note: You'll lose access to real-time API features
+4. Your account will revert to the free tier
+5. Existing transcriptions and data remain accessible
+
+## Support
+
+For billing or account upgrade assistance:
+
+- Email: support@assemblyai.com
+- Dashboard: [app.assemblyai.com](https://app.assemblyai.com/)
+- Include your account email and issue description

@@ -1,0 +1,236 @@
+---
+title: 'Common Issues'
+description: 'Solutions to common problems when using the AssemblyAI Real-Time Transcription Browser Example'
+---
+
+This guide covers the most frequently encountered issues and their solutions.
+
+## Quick Diagnostics
+
+If you're experiencing issues, check these first:
+
+1. Is your AssemblyAI account upgraded with billing enabled?
+2. Did you grant microphone permissions?
+3. Is your browser compatible with AudioWorklet?
+4. Is the WebSocket connection established?
+
+## Common Problems
+
+<Accordion title="402 Error: Unauthorized">
+  <Warning>
+    The real-time API requires an upgraded account with billing enabled.
+  </Warning>
+
+  **Problem:** You see a 402 status code error when trying to connect.
+
+  **Cause:** Your AssemblyAI account has not been upgraded. The real-time API is only available to accounts with billing enabled.
+
+  **Solution:**
+  1. Go to the [AssemblyAI Dashboard](https://app.assemblyai.com/)
+  2. Add a payment method to upgrade your account
+  3. Restart the application
+
+  See the [Account Upgrade](/troubleshooting/account-upgrade) guide for detailed instructions.
+</Accordion>
+
+<Accordion title="Microphone Permission Denied">
+  **Problem:** The browser blocks microphone access or you see a permission denied error.
+
+  **Cause:** The browser has not been granted permission to access the microphone, or permissions were previously denied.
+
+  **Solution:**
+
+  **Chrome/Edge:**
+  1. Click the lock icon in the address bar
+  2. Find "Microphone" in the permissions list
+  3. Change to "Allow"
+  4. Refresh the page
+
+  **Firefox:**
+  1. Click the lock icon in the address bar
+  2. Click "More Information" → "Permissions" tab
+  3. Uncheck "Use Default" for "Use the Microphone"
+  4. Select "Allow"
+  5. Refresh the page
+
+  **Code to handle permission errors:**
+  ```javascript
+  async function requestMicrophonePermission() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      console.log('Microphone permission granted');
+      return stream;
+    } catch (error) {
+      if (error.name === 'NotAllowedError') {
+        console.error('Microphone permission denied');
+        alert('Please allow microphone access to use this app');
+      } else if (error.name === 'NotFoundError') {
+        console.error('No microphone found');
+        alert('No microphone detected. Please connect a microphone.');
+      }
+      throw error;
+    }
+  }
+  ```
+</Accordion>
+
+<Accordion title="WebSocket Connection Fails">
+  **Problem:** The WebSocket connection never opens or fails immediately.
+
+  **Symptoms:**
+  - Console shows "WebSocket error"
+  - No transcription appears
+  - Connection closes immediately after opening
+
+  **Common Causes & Solutions:**
+
+  1. **Invalid or missing token**
+     - Check that your `.env` file contains a valid AssemblyAI API key
+     - Verify the `/token` endpoint returns a valid temporary token
+     - Debug with:
+     ```javascript
+     const response = await fetch("http://localhost:8000/token");
+     const data = await response.json();
+     console.log('Token response:', data);
+     if (data.error || !data.token) {
+       console.error('Failed to get token:', data.error);
+     }
+     ```
+
+  2. **Network/firewall issues**
+     - Check that your network allows WebSocket connections
+     - Try disabling browser extensions (ad blockers, privacy tools)
+     - Check browser console for CORS errors
+
+  3. **Server not running**
+     - Ensure the Express server is running on port 8000
+     - Run `yarn serve` in the project directory
+     - Check that `http://localhost:8000` is accessible
+</Accordion>
+
+<Accordion title="No Audio Streaming / Empty Transcripts">
+  **Problem:** WebSocket connects but no transcription appears.
+
+  **Debugging Steps:**
+
+  1. **Verify audio is being captured:**
+     ```javascript
+     audioWorkletNode.port.onmessage = (event) => {
+       const currentBuffer = new Int16Array(event.data.audio_data);
+       console.log('Audio buffer size:', currentBuffer.length);
+       console.log('Sample values:', currentBuffer.slice(0, 10));
+       
+       // Check if audio contains actual sound (not just silence)
+       const hasAudio = currentBuffer.some(sample => Math.abs(sample) > 100);
+       console.log('Has audio signal:', hasAudio);
+       
+       // ... rest of the code
+     };
+     ```
+
+  2. **Check WebSocket is receiving messages:**
+     ```javascript
+     ws.onmessage = (event) => {
+       const msg = JSON.parse(event.data);
+       console.log('WebSocket message:', msg);
+       
+       if (msg.type === "Turn") {
+         console.log('Turn received:', msg.turn_order, msg.transcript);
+       } else if (msg.type === "Error") {
+         console.error('AssemblyAI error:', msg.error);
+       }
+     };
+     ```
+
+  3. **Verify audio is being sent:**
+     ```javascript
+     microphone.startRecording((audioChunk) => {
+       if (ws.readyState === WebSocket.OPEN) {
+         console.log('Sending audio chunk:', audioChunk.length, 'bytes');
+         ws.send(audioChunk);
+       } else {
+         console.warn('WebSocket not open, readyState:', ws.readyState);
+       }
+     });
+     ```
+
+  4. **Common issues:**
+     - Microphone is muted in system settings
+     - Wrong audio input device selected
+     - Sample rate mismatch (should be 16000 Hz)
+     - AudioContext not initialized properly
+</Accordion>
+
+<Accordion title="AudioWorklet Module Loading Failed">
+  **Problem:** Error loading `audio-processor.js` module.
+
+  **Error message:**
+  ```
+  Failed to load module script: The server responded with a non-JavaScript MIME type
+  ```
+
+  **Solution:**
+
+  1. **Check file path is correct:**
+     ```javascript
+     await audioContext.audioWorklet.addModule('audio-processor.js');
+     ```
+     The path is relative to the HTML page. If your structure is different, adjust accordingly.
+
+  2. **Verify server serves the file with correct MIME type:**
+     The file must be served with `Content-Type: application/javascript` or `text/javascript`.
+
+  3. **Check file exists and is accessible:**
+     - Open `http://localhost:8000/audio-processor.js` in your browser
+     - You should see the AudioWorklet code
+     - If you see a 404, the file path is incorrect
+
+  4. **CORS issues:**
+     AudioWorklet modules must be served from the same origin or with proper CORS headers.
+</Accordion>
+
+<Accordion title="Transcription Stops After a Few Seconds">
+  **Problem:** Transcription works initially but stops after a short time.
+
+  **Possible Causes:**
+
+  1. **WebSocket timeout or disconnection:**
+     ```javascript
+     ws.onclose = (event) => {
+       console.log('WebSocket closed:', event.code, event.reason);
+       if (event.code !== 1000) {
+         console.error('Unexpected close code:', event.code);
+       }
+     };
+     ```
+
+  2. **AudioContext suspended:**
+     ```javascript
+     audioContext.addEventListener('statechange', () => {
+       console.log('AudioContext state:', audioContext.state);
+       if (audioContext.state === 'suspended') {
+         console.warn('AudioContext suspended, attempting to resume');
+         audioContext.resume();
+       }
+     });
+     ```
+
+  3. **Memory leak in audio buffer:**
+     Ensure buffers are properly cleared and not accumulating.
+
+  4. **Network connectivity issues:**
+     Check your internet connection stability.
+</Accordion>
+
+## Getting More Help
+
+If you've tried these solutions and still have issues:
+
+1. Check the browser console for detailed error messages
+2. Review the [Browser Compatibility](/troubleshooting/browser-compatibility) guide
+3. Contact AssemblyAI support at support@assemblyai.com
+4. Include the following in your support request:
+   - Browser name and version
+   - Error messages from the console
+   - Whether your account is upgraded
+   - Steps to reproduce the issue

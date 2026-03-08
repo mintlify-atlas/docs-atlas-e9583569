@@ -1,0 +1,183 @@
+---
+title: 'Accessing the Microphone'
+description: 'Request microphone permissions and configure AudioContext with the correct sample rate for real-time transcription'
+---
+
+This guide covers how to capture audio from the user's microphone using the Web Audio API with the correct configuration for AssemblyAI's streaming service.
+
+## Microphone Object Structure
+
+The microphone functionality is encapsulated in a factory function that returns an object with three methods:
+
+```javascript public/index.js
+function createMicrophone() {
+  let stream;
+  let audioContext;
+  let audioWorkletNode;
+  let source;
+  let audioBufferQueue = new Int16Array(0);
+
+  return {
+    async requestPermission() { /* ... */ },
+    async startRecording(onAudioCallback) { /* ... */ },
+    stopRecording() { /* ... */ }
+  };
+}
+```
+
+This pattern keeps audio-related state private while exposing a clean interface.
+
+## Requesting Microphone Permission
+
+<Steps>
+  <Step title="Request user permission">
+    Use the `getUserMedia` API to request microphone access:
+
+```javascript public/index.js
+async requestPermission() {
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+}
+```
+
+**What happens:**
+- Browser shows a permission prompt to the user
+- If granted, returns a `MediaStream` object
+- If denied, throws an error that should be caught and handled
+
+<Tip>
+Call `requestPermission()` early to get permission before starting the actual recording. This separates the permission flow from the recording logic.
+</Tip>
+  </Step>
+</Steps>
+
+## Configuring Audio Context
+
+AssemblyAI's streaming API requires audio at **16kHz sample rate** in **16-bit PCM** format.
+
+<Steps>
+  <Step title="Create AudioContext with 16kHz sample rate">
+    Configure the `AudioContext` when starting recording:
+
+```javascript public/index.js
+audioContext = new AudioContext({
+  sampleRate: 16000,
+  latencyHint: 'balanced'
+});
+```
+
+**Configuration explained:** The `sampleRate: 16000` sets audio sampling at 16kHz (required by AssemblyAI), and `latencyHint: 'balanced'` balances between latency and audio quality.
+  </Step>
+
+  <Step title="Create media stream source">
+    Connect the microphone stream to the audio processing pipeline:
+
+```javascript public/index.js
+source = audioContext.createMediaStreamSource(stream);
+```
+
+This creates an `AudioNode` from the microphone stream that can be processed by the Web Audio API.
+  </Step>
+
+  <Step title="Load and connect the audio worklet">
+    Set up the audio worklet processor for format conversion:
+
+```javascript public/index.js
+await audioContext.audioWorklet.addModule('audio-processor.js');
+
+audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+source.connect(audioWorkletNode);
+audioWorkletNode.connect(audioContext.destination);
+```
+
+**Processing chain:**
+1. Microphone stream → `source` node
+2. `source` → `audioWorkletNode` (converts Float32 to Int16)
+3. `audioWorkletNode` → `destination` (speakers, for monitoring)
+  </Step>
+</Steps>
+
+## Complete Start Recording Function
+
+Here's the full implementation that combines all the pieces:
+
+```javascript public/index.js
+async startRecording(onAudioCallback) {
+  if (!stream) stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  audioContext = new AudioContext({
+    sampleRate: 16000,
+    latencyHint: 'balanced'
+  });
+
+  source = audioContext.createMediaStreamSource(stream);
+  await audioContext.audioWorklet.addModule('audio-processor.js');
+
+  audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
+  source.connect(audioWorkletNode);
+  audioWorkletNode.connect(audioContext.destination);
+
+  audioWorkletNode.port.onmessage = (event) => {
+    const currentBuffer = new Int16Array(event.data.audio_data);
+    audioBufferQueue = mergeBuffers(audioBufferQueue, currentBuffer);
+
+    const bufferDuration = (audioBufferQueue.length / audioContext.sampleRate) * 1000;
+
+    if (bufferDuration >= 100) {
+      const totalSamples = Math.floor(audioContext.sampleRate * 0.1);
+      const finalBuffer = new Uint8Array(audioBufferQueue.subarray(0, totalSamples).buffer);
+      audioBufferQueue = audioBufferQueue.subarray(totalSamples);
+
+      if (onAudioCallback) onAudioCallback(finalBuffer);
+    }
+  };
+}
+```
+
+**Flow:**
+1. Request stream if not already available (line 2)
+2. Create 16kHz AudioContext (lines 4-7)
+3. Set up audio processing pipeline (lines 9-14)
+4. Buffer audio and send in 100ms chunks (lines 16-29)
+
+## Stopping Recording
+
+Clean up resources when recording stops:
+
+```javascript public/index.js
+stopRecording() {
+  stream?.getTracks().forEach((track) => track.stop());
+  audioContext?.close();
+  audioBufferQueue = new Int16Array(0);
+}
+```
+
+**Cleanup tasks:**
+- Stop all media tracks to release the microphone
+- Close the AudioContext to free resources
+- Clear the audio buffer queue
+
+## Usage Example
+
+Here's how to use the microphone object:
+
+```javascript
+const microphone = createMicrophone();
+
+// Request permission first
+await microphone.requestPermission();
+
+// Start recording and process audio chunks
+await microphone.startRecording((audioChunk) => {
+  // Send audioChunk to WebSocket
+  ws.send(audioChunk);
+});
+
+// Later, stop recording
+microphone.stopRecording();
+```
+
+## Next Steps
+
+Now that you can capture microphone audio:
+- Learn about the [Audio Worklet implementation](/guides/audio-worklet) that converts audio format
+- Set up [WebSocket integration](/guides/websocket-integration) to send audio data

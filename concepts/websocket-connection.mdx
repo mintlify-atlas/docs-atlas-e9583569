@@ -1,0 +1,256 @@
+---
+title: 'WebSocket Connection'
+description: 'How the application connects to AssemblyAI and handles real-time messages'
+---
+
+## Overview
+
+The application uses WebSocket to establish a persistent, bidirectional connection with AssemblyAI's real-time transcription service. This enables low-latency audio streaming and immediate transcript delivery.
+
+## Connection Setup
+
+The WebSocket connection is established with query parameters specifying audio format and authentication:
+
+```javascript index.js
+const endpoint = `wss://streaming.assemblyai.com/v3/ws?sample_rate=16000&formatted_finals=true&token=${data.token}`;
+ws = new WebSocket(endpoint);
+```
+
+### Connection Parameters
+
+- **`sample_rate=16000`**: Specifies the audio sample rate in Hz
+- **`formatted_finals=true`**: Enables formatted final transcripts with punctuation and capitalization
+- **`token=${data.token}`**: Temporary authentication token for secure access
+
+<Info>
+The sample rate must match the AudioContext configuration (16kHz). Mismatched sample rates will result in distorted audio and poor transcription accuracy.
+</Info>
+
+## Message Types
+
+AssemblyAI's real-time API uses typed messages to communicate transcription results:
+
+### Turn Messages
+
+The primary message type containing transcription results:
+
+```javascript index.js
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    const { turn_order, transcript } = msg;
+    turns[turn_order] = transcript;
+
+    const orderedTurns = Object.keys(turns)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => turns[k])
+      .join(" ");
+
+    messageEl.innerText = orderedTurns;
+  }
+};
+```
+
+<Note>
+Turn messages represent complete speech segments. The `turn_order` field ensures turns can be displayed in the correct sequence even if messages arrive out of order.
+</Note>
+
+### Turn Message Structure
+
+```json
+{
+  "type": "Turn",
+  "turn_order": 1,
+  "transcript": "Hello, how are you doing today?"
+}
+```
+
+### Terminate Messages
+
+Sent by the client to gracefully close the transcription session:
+
+```javascript index.js
+if (ws) {
+  ws.send(JSON.stringify({ type: "Terminate" }));
+  ws.close();
+  ws = null;
+}
+```
+
+<Tip>
+Always send a Terminate message before closing the WebSocket. This allows AssemblyAI to flush any remaining audio and return final transcripts.
+</Tip>
+
+## Connection Lifecycle
+
+### 1. Opening the Connection
+
+```javascript index.js
+ws.onopen = () => {
+  console.log("WebSocket connected!");
+  messageEl.style.display = "";
+  microphone.startRecording((audioChunk) => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(audioChunk);
+    }
+  });
+};
+```
+
+Once connected, the client:
+1. Logs the connection status
+2. Shows the message display element
+3. Starts audio recording and streaming
+
+<Info>
+Always check `ws.readyState === WebSocket.OPEN` before sending data to avoid errors from attempting to send on a closed or closing connection.
+</Info>
+
+### 2. Streaming Audio
+
+Audio chunks are sent as binary data over the WebSocket:
+
+```javascript index.js
+microphone.startRecording((audioChunk) => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(audioChunk);
+  }
+});
+```
+
+The `audioChunk` is a `Uint8Array` containing 100ms of Int16 PCM audio data.
+
+### 3. Receiving Transcripts
+
+Transcripts arrive asynchronously as Turn messages:
+
+```javascript index.js
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    const { turn_order, transcript } = msg;
+    turns[turn_order] = transcript;
+    // Display logic...
+  }
+};
+```
+
+<Note>
+Turns are stored in an object keyed by `turn_order` to handle out-of-order delivery. The display logic sorts turns before rendering.
+</Note>
+
+### 4. Error Handling
+
+```javascript index.js
+ws.onerror = (err) => {
+  console.error("WebSocket error:", err);
+  alert("WebSocket error, check the console.");
+};
+```
+
+<Tip>
+WebSocket errors often indicate network issues, invalid tokens, or incorrect connection parameters. Check the browser console for detailed error messages.
+</Tip>
+
+### 5. Closing the Connection
+
+```javascript index.js
+ws.onclose = () => {
+  console.log("WebSocket closed");
+};
+```
+
+The `onclose` handler fires when:
+- The client sends a Terminate message and calls `ws.close()`
+- The token expires
+- Network connectivity is lost
+- AssemblyAI terminates the connection
+
+## Connection State Management
+
+The application uses a simple state management approach:
+
+```javascript index.js
+let isRecording = false;
+let ws;
+let microphone;
+
+async function run() {
+  if (isRecording) {
+    // Stop recording and close connection
+    if (ws) {
+      ws.send(JSON.stringify({ type: "Terminate" }));
+      ws.close();
+      ws = null;
+    }
+    if (microphone) {
+      microphone.stopRecording();
+      microphone = null;
+    }
+  } else {
+    // Start recording and open connection
+    microphone = createMicrophone();
+    await microphone.requestPermission();
+    // Fetch token and connect...
+  }
+
+  isRecording = !isRecording;
+  buttonEl.innerText = isRecording ? "Stop" : "Record";
+}
+```
+
+<Info>
+Setting `ws = null` after closing ensures the old WebSocket instance can be garbage collected and prevents accidental reuse of closed connections.
+</Info>
+
+## Turn Ordering Algorithm
+
+The application maintains correct turn order despite potential network delays:
+
+```javascript index.js
+const turns = {}; // keyed by turn_order
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === "Turn") {
+    const { turn_order, transcript } = msg;
+    turns[turn_order] = transcript;
+
+    // Sort numerically and join
+    const orderedTurns = Object.keys(turns)
+      .sort((a, b) => Number(a) - Number(b))
+      .map((k) => turns[k])
+      .join(" ");
+
+    messageEl.innerText = orderedTurns;
+  }
+};
+```
+
+<Note>
+The `sort((a, b) => Number(a) - Number(b))` ensures numeric sorting. Without the `Number()` conversion, JavaScript would sort lexicographically ("10" before "2").
+</Note>
+
+## Best Practices
+
+<Tip>
+**Connection Management**
+- Always check `readyState` before sending
+- Send Terminate message before closing
+- Handle all WebSocket events (open, message, error, close)
+- Clean up references after closing
+</Tip>
+
+<Tip>
+**Error Handling**
+- Log errors to console for debugging
+- Provide user-friendly error messages
+- Consider implementing reconnection logic for production apps
+</Tip>
+
+<Tip>
+**Performance**
+- Send audio in consistent chunk sizes (100ms)
+- Don't buffer too much audio (increases latency)
+- Process messages as they arrive (don't queue them)
+</Tip>

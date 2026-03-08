@@ -1,0 +1,88 @@
+---
+title: Introduction
+description: Real-time speech transcription in the browser using AssemblyAI's WebSocket API
+---
+
+# AssemblyAI Real-Time Transcription Browser Example
+
+This open-source project demonstrates how to implement real-time speech transcription directly in the browser using AssemblyAI's real-time WebSocket API.
+
+The application captures audio from your microphone, processes it using the Web Audio API's AudioWorklet, and streams it to AssemblyAI for instant transcription. The results are displayed in real-time as you speak.
+
+## What You'll Learn
+
+This example shows you how to:
+
+- Set up an Express server to generate temporary authentication tokens
+- Capture and process microphone audio using the Web Audio API
+- Convert audio to the correct format (PCM16 at 16kHz) using AudioWorklet
+- Establish a WebSocket connection to AssemblyAI's real-time transcription service
+- Handle real-time transcription results with turn-based ordering
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Real-Time Transcription" icon="waveform" iconType="duotone">
+    Stream audio and receive transcriptions instantly with minimal latency
+  </Card>
+  <Card title="Browser-Native" icon="browser" iconType="duotone">
+    Runs entirely in the browser with no plugin or extension required
+  </Card>
+  <Card title="Secure Authentication" icon="shield-check" iconType="duotone">
+    Uses temporary tokens to keep your API key secure on the server
+  </Card>
+  <Card title="AudioWorklet Processing" icon="microchip" iconType="duotone">
+    Low-latency audio processing using modern Web Audio API features
+  </Card>
+</CardGroup>
+
+## Architecture Overview
+
+The application consists of three main components:
+
+1. **Express Server** - Generates temporary authentication tokens to keep your API key secure
+2. **Client-Side Audio Processing** - Captures microphone input and converts it to the required format
+3. **WebSocket Connection** - Streams audio data to AssemblyAI and receives transcription results
+
+<Note>
+Before running this example, you need an upgraded AssemblyAI account. The real-time API is only available to accounts with billing enabled. Learn more in the [Account Upgrade](/troubleshooting/account-upgrade) guide.
+</Note>
+
+## Prerequisites
+
+- Node.js installed on your system
+- An AssemblyAI account with billing enabled
+- A modern browser with support for:
+  - Web Audio API
+  - AudioWorklet
+  - WebSocket
+  - getUserMedia
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get up and running in 5 minutes
+  </Card>
+  <Card title="Core Concepts" icon="lightbulb" href="/concepts/architecture">
+    Understand how the system works
+  </Card>
+  <Card title="Implementation Guide" icon="code" href="/guides/setup-environment">
+    Step-by-step implementation details
+  </Card>
+  <Card title="API Reference" icon="book" href="/api/server-endpoints">
+    Detailed API documentation
+  </Card>
+</CardGroup>
+
+## Technology Stack
+
+- **Backend**: Express.js, Node.js
+- **Frontend**: Vanilla JavaScript
+- **Audio Processing**: Web Audio API, AudioWorklet
+- **Real-Time Communication**: WebSocket
+- **Transcription**: AssemblyAI Real-Time API
+
+## Next Steps
+
+Ready to get started? Head over to the [Quickstart](/quickstart) guide to clone the repository, configure your API key, and run the application.
