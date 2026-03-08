@@ -1,0 +1,71 @@
+{
+  "projectType": "frontend",
+  "projectName": "AssemblyAI Real-Time Transcription Browser Example",
+  "projectDescription": "Browser-based demonstration of AssemblyAI's real-time WebSocket API for live speech transcription using JavaScript and Web Audio API.",
+  "theme": "palm",
+  "primaryColor": "#5E5AFF",
+  "lightColor": "#8E8AFF",
+  "darkColor": "#3E3ADF",
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "introduction",
+          "quickstart"
+        ]
+      },
+      {
+        "group": "Core Concepts",
+        "pages": [
+          "concepts/architecture",
+          "concepts/audio-processing",
+          "concepts/websocket-connection",
+          "concepts/token-authentication"
+        ]
+      },
+      {
+        "group": "Implementation Guide",
+        "pages": [
+          "guides/setup-environment",
+          "guides/microphone-access",
+          "guides/audio-worklet",
+          "guides/websocket-integration",
+          "guides/handling-transcripts"
+        ]
+      },
+      {
+        "group": "API Reference",
+        "pages": [
+          "api/server-endpoints",
+          "api/token-generator",
+          "api/audio-processor",
+          "api/microphone-manager"
+        ]
+      },
+      {
+        "group": "Troubleshooting",
+        "pages": [
+          "troubleshooting/common-issues",
+          "troubleshooting/account-upgrade",
+          "troubleshooting/browser-compatibility"
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Real-time audio transcription in browser using WebSocket",
+    "AudioWorklet-based audio processing for low latency",
+    "Temporary token generation for secure client-side access",
+    "Express server for token management",
+    "Microphone capture and audio stream management",
+    "Turn-based transcript ordering and display"
+  ],
+  "publicApiSurface": [
+    "GET /token - Generate temporary AssemblyAI authentication token",
+    "createMicrophone() - Factory function for microphone management",
+    "AudioProcessor - AudioWorklet processor for PCM16 conversion",
+    "generateTempToken(expiresInSeconds) - Server-side token generation",
+    "WebSocket wss://streaming.assemblyai.com/v3/ws - AssemblyAI real-time endpoint"
+  ]
+}
